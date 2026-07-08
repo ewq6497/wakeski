@@ -418,10 +418,12 @@ async function initPose(){
     throw new Error('LIB_NOT_LOADED::객체 없음');
   }
 
-  // 2) WASM 파일 받기 (여러 CDN 시도)
+  // 2) WASM 파일 받기 — esm.sh 원본 서빙 경로들을 순서대로 시도
   setStatus('② 엔진 파일 받는 중…',true,30);
   const WASM_DIRS=[
-    "https://esm.sh/@mediapipe/tasks-vision@0.10.14/wasm",
+    "https://esm.sh/@mediapipe/tasks-vision@0.10.14/wasm/",
+    "https://esm.sh/gh/google-ai-edge/mediapipe@v0.10.14/wasm",
+    "./wasm",
     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
   ];
   let vision=null, lastErr='';
