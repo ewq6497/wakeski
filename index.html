@@ -128,7 +128,7 @@
   .tag.good{background:rgba(47,230,200,.15);color:var(--aqua)}
   .tag.warn{background:rgba(255,178,62,.15);color:var(--amber)}
   .coach{background:var(--bg2);border:1px solid var(--line);border-left:3px solid var(--amber);
-    border-radius:12px;padding:14px 16px;margin-top:10px;font-size:13px;line-height:1.7;color:var(--ink)}
+    border-radius:12px;padding:15px 17px;margin-top:10px;font-size:13.5px;line-height:1.75;color:var(--ink)}
   .coach b{color:var(--amber)}
 </style>
 </head>
@@ -607,48 +607,146 @@ function showResults(){
   $('metrics').style.display='block';
   const knee=med(samples.knee), lean=med(samples.lean),
         balRaw=med(samples.bal), arm=med(samples.arm);
-  const notes=[];
 
+  // 변동성 계산 (자세 일관성 지표)
+  const spread=arr=>{ if(arr.length<3)return null;
+    const s=[...arr].sort((a,b)=>a-b);
+    return s[Math.floor(s.length*0.85)]-s[Math.floor(s.length*0.15)]; };
+  const kneeVar=spread(samples.knee), leanVar=spread(samples.lean);
+
+  // 각 지표를 등급으로 분류: 'good' | 'warn' | 'bad'
+  const G={};
+
+  // ---- 무릎 굽힘 ----
   if(knee!=null){
     $('mKnee').textContent=Math.round(knee);
-    // ideal wakeski absorption ~120-150° (bent). straighter = >160
-    const ok=knee<=155;
-    tag($('tKnee'),ok,ok?'안정':'뻣뻣');
-    if(!ok) notes.push('무릎이 다소 펴져 있어요. 조금 더 굽혀 <b>충격을 흡수</b>하면 안정감이 올라갑니다.');
+    if(knee<=145){ G.knee='good'; tag($('tKnee'),true,'안정'); }
+    else if(knee<=160){ G.knee='warn'; tag($('tKnee'),false,'약간 폄'); }
+    else { G.knee='bad'; tag($('tKnee'),false,'뻣뻣'); }
   } else $('mKnee').textContent='–';
 
+  // ---- 상체 기울기 ----
   if(lean!=null){
     $('mLean').textContent=Math.round(lean);
-    const ok=lean>=8&&lean<=28; // slight backward lean
-    tag($('tLean'),ok,ok?'적정':'조정');
-    if(lean<8) notes.push('상체가 너무 <b>수직</b>이에요. 살짝 뒤로 기대 로프에 체중을 실어보세요.');
-    else if(lean>28) notes.push('상체가 <b>과하게 젖혀져</b> 있어요. 무게중심을 앞으로 당기면 균형이 좋아집니다.');
+    if(lean>=10&&lean<=25){ G.lean='good'; tag($('tLean'),true,'적정'); }
+    else if(lean<10){ G.lean=lean<5?'bad':'warn'; tag($('tLean'),false,'수직'); }
+    else { G.lean=lean>32?'bad':'warn'; tag($('tLean'),false,'젖혀짐'); }
   } else $('mLean').textContent='–';
 
+  // ---- 좌우 밸런스 ----
+  let balPct=null;
   if(balRaw!=null){
-    const balPct=Math.max(0,Math.round(100-balRaw*600)); // lower tilt = higher score
+    balPct=Math.max(0,Math.round(100-balRaw*600));
     $('mBal').textContent=balPct;
-    const ok=balPct>=75;
-    tag($('tBal'),ok,ok?'수평':'좌우편차');
-    if(!ok) notes.push('어깨·엉덩이가 <b>한쪽으로 기울어</b> 있어요. 양발 체중을 고르게 실어보세요.');
+    if(balPct>=82){ G.bal='good'; tag($('tBal'),true,'수평'); }
+    else if(balPct>=68){ G.bal='warn'; tag($('tBal'),false,'약간 기욺'); }
+    else { G.bal='bad'; tag($('tBal'),false,'좌우편차'); }
   } else $('mBal').textContent='–';
 
+  // ---- 팔 뻗음 ----
   if(arm!=null){
     $('mArm').textContent=Math.round(arm);
-    const ok=arm>=150; // arms should stay fairly extended
-    tag($('tArm'),ok,ok?'뻗음':'당김');
-    if(!ok) notes.push('팔을 <b>많이 당기고</b> 있어요. 팔은 편 채로 코어로 버티는 게 힘 손실이 적습니다.');
+    if(arm>=155){ G.arm='good'; tag($('tArm'),true,'뻗음'); }
+    else if(arm>=135){ G.arm='warn'; tag($('tArm'),false,'약간 당김'); }
+    else { G.arm='bad'; tag($('tArm'),false,'당김'); }
   } else $('mArm').textContent='–';
 
+  // ================= 지표별 상세 코칭 =================
+  // [현상 → 원인 → 교정법] 중급자 기준
+  const DETAIL={
+    knee:{
+      warn:'무릎이 약간 펴져 있어요. 물살이 튈 때 충격이 무릎 대신 허리로 올라가 쉽게 지칩니다. 스키가 항상 발밑에 있다고 느낄 만큼, 살짝 <b>앉은 자세</b>를 유지해 보세요. 무릎을 스프링처럼 써서 웨이크를 넘을 때 부드럽게 흡수하는 게 핵심입니다.',
+      bad:'무릎이 거의 펴져 있어요. 이 자세는 균형이 위로 쏠려서 작은 물결에도 크게 흔들립니다. 의자에 앉듯 <b>엉덩이를 뒤로 빼고 무릎을 깊게 굽혀</b>, 정강이가 앞으로 기운 자세를 만드세요. 처음엔 어색해도 안정감이 확연히 달라집니다.'
+    },
+    lean:{
+      warnV:'상체가 수직에 가까워요. 로프의 장력을 몸으로 못 받고 팔로만 버티게 됩니다. <b>골반을 앞으로 밀고 상체를 살짝 뒤로</b> 기대, 로프에 체중을 실어보세요. 그러면 팔 힘을 아낄 수 있어요.',
+      badV:'상체가 너무 곧게 서 있어요. 보트가 당기는 힘을 전부 팔로 감당하는 자세라 금방 지치고, 방향 전환도 둔해집니다. 뒤꿈치 쪽으로 체중을 싣고 <b>상체를 뒤로 기대</b>는 감각을 익히면, 힘을 훨씬 덜 쓰고도 안정적으로 끌려갑니다.',
+      warnB:'상체가 조금 과하게 젖혀져 있어요. 뒤로 너무 눕히면 스키 앞날이 들려 컨트롤이 떨어집니다. 기댐은 유지하되 <b>가슴을 살짝 세워</b> 무게중심을 발 위로 가져오세요.',
+      badB:'상체가 심하게 뒤로 넘어가 있어요. 넘어지기 직전의 불안정한 자세예요. 시선을 <b>보트가 아니라 앞쪽 수면</b>에 두고, 가슴을 세워 무게중심을 발 가운데로 당겨오세요.'
+    },
+    bal:{
+      warn:'좌우 밸런스가 약간 무너져 있어요. 한쪽 발에 체중이 쏠리면 방향이 미세하게 틀어지고 회전이 한쪽만 잘 됩니다. 양발에 <b>체중을 5:5</b>로 싣는다고 의식하고, 어깨선을 수면과 나란히 유지해 보세요.',
+      bad:'체중이 뚜렷하게 한쪽으로 쏠려 있어요. 이 상태로는 양방향 회전이 어렵고 넘어질 위험도 커집니다. 거울이나 영상으로 <b>어깨와 골반이 기운 방향</b>을 확인하고, 반대쪽 발을 더 눌러 수평을 맞추는 연습을 하세요.'
+    },
+    arm:{
+      warn:'팔을 약간 당기고 있어요. 팔로 버티면 어깨가 먼저 지치고 상체가 앞으로 끌려갑니다. <b>팔은 편 채로</b> 두고, 버티는 힘은 등과 코어로 옮겨보세요. 손잡이는 골반 근처에 낮게 두는 게 좋습니다.',
+      bad:'팔을 강하게 당기고 있어요. 초보 때 가장 흔한 습관인데, 팔로 당길수록 상체가 앞으로 쏠려 오히려 불안정해집니다. <b>팔을 쭉 펴서 손잡이를 몸에서 멀리</b> 두고, 로프를 골반에 건다는 느낌으로 코어로 버티세요. 팔이 편해지면 훨씬 오래 탈 수 있습니다.'
+    }
+  };
+
+  // 우선순위대로 코칭 노트 수집 (bad 먼저, 그다음 warn)
+  const notes=[];
+  const push=(t)=>notes.push(t);
+  ['bad','warn'].forEach(level=>{
+    if(G.knee===level) push(DETAIL.knee[level]);
+    if(G.lean===level){
+      if(lean<10) push(level==='bad'?DETAIL.lean.badV:DETAIL.lean.warnV);
+      else push(level==='bad'?DETAIL.lean.badB:DETAIL.lean.warnB);
+    }
+    if(G.bal===level) push(DETAIL.bal[level]);
+    if(G.arm===level) push(DETAIL.arm[level]);
+  });
+
+  // ================= 자세 유형 종합 진단 =================
+  let diagnosis='';
+  const badArm=G.arm==='bad'||G.arm==='warn';
+  const stiffLower=G.knee==='bad'||G.knee==='warn';
+  const uprightLean=G.lean&&lean<10;
+  if((badArm)&&(uprightLean)){
+    diagnosis='종합하면 <b>「팔로 버티는 유형」</b>이에요. 상체가 서 있고 팔로 당기다 보니 힘이 많이 들어갑니다. 상체를 뒤로 기대 로프에 체중을 싣고 팔을 펴는 것 하나만 고쳐도, 여러 지표가 한꺼번에 좋아질 거예요.';
+  } else if(stiffLower && (G.bal==='bad'||G.bal==='warn')){
+    diagnosis='종합하면 <b>「하체 흡수가 부족한 유형」</b>이에요. 무릎이 덜 굽어 충격 흡수가 안 되니 좌우 균형까지 흔들립니다. 무릎을 깊게 굽혀 낮은 자세를 만드는 것부터 잡으면 밸런스도 따라옵니다.';
+  } else if(G.lean&&lean>25){
+    diagnosis='종합하면 <b>「뒤로 눕는 유형」</b>이에요. 기댐은 좋지만 과해서 스키 컨트롤이 떨어집니다. 가슴을 세워 무게중심을 발 위로 가져오면 안정감과 조작성이 함께 올라갑니다.';
+  }
+
+  // ================= 일관성(변동성) 코멘트 =================
+  let consistency='';
+  if(kneeVar!=null&&kneeVar>35){
+    consistency='무릎 각도가 영상 내내 크게 출렁였어요. 자세가 고정되지 않고 계속 흔들린다는 뜻이라, 한 자세를 <b>일정하게 유지</b>하는 연습이 도움이 됩니다.';
+  } else if(leanVar!=null&&leanVar>20){
+    consistency='상체 각도의 변동이 커요. 물살에 따라 몸이 앞뒤로 흔들리고 있으니, 코어에 힘을 주고 <b>상체를 고정</b>하는 걸 의식해 보세요.';
+  }
+
+  // ================= 출력 조립 =================
   const c=$('coach');
   if(!samples.knee.length&&!samples.lean.length){
     c.innerHTML='몸 전체가 잘 잡히지 않았어요. <b>측면에서 전신이 나오게</b> 다시 촬영하면 정확도가 높아집니다.';
-  } else if(notes.length){
-    c.innerHTML='<b>코칭 포인트</b><br>'+notes.map(n=>'· '+n).join('<br>');
-  } else {
-    c.innerHTML='<b>훌륭합니다.</b> 무릎·상체·밸런스·팔 모두 안정 범위예요. 이 자세를 유지해 보세요.';
+    return;
   }
-  // keep last skeleton frame visible
+
+  let html='';
+  const goodCount=Object.values(G).filter(v=>v==='good').length;
+  const total=Object.keys(G).length;
+
+  if(diagnosis) html+='<div style="margin-bottom:12px">'+diagnosis+'</div>';
+
+  if(notes.length){
+    html+='<b style="color:var(--amber)">고칠 점 (중요한 순서)</b>';
+    html+='<div style="margin-top:8px">'+notes.map((n,i)=>
+      `<div style="margin-bottom:10px"><b style="color:var(--aqua)">${i+1}.</b> ${n}</div>`
+    ).join('')+'</div>';
+  }
+
+  if(consistency) html+='<div style="margin-top:6px;padding-top:10px;border-top:1px solid var(--line)">📊 '+consistency+'</div>';
+
+  // 잘하고 있는 점도 짚어주기 (동기부여)
+  const goods=[];
+  if(G.knee==='good') goods.push('무릎 흡수');
+  if(G.lean==='good') goods.push('상체 기댐');
+  if(G.bal==='good') goods.push('좌우 균형');
+  if(G.arm==='good') goods.push('팔 자세');
+  if(goods.length){
+    html+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);color:var(--aqua)">'+
+      '✓ 잘 되고 있어요: '+goods.join(', ')+'</div>';
+  }
+
+  if(goodCount===total && total>=3){
+    html='<b style="color:var(--aqua)">완성도 높은 자세예요.</b><br>무릎·상체·밸런스·팔 모두 안정 범위입니다. 다음 단계로는 웨이크를 넘으며 이 자세를 유지하거나, 좌우 회전(컷)을 크게 그려보는 연습을 추천해요.'+
+      (consistency?'<div style="margin-top:8px">📊 '+consistency+'</div>':'');
+  }
+
+  c.innerHTML=html;
 }
 
 window.addEventListener('resize',()=>{if(running&&path.length>=2)drawTrack();});
