@@ -4,7 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>웨이크 트래커 · 수상스키 기록 & 자세분석</title>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.js"></script>
+<script>window.__mpLoadFailed=false;</script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.js"
+  onerror="window.__mpLoadFailed=true"></script>
 <style>
   :root{
     --bg:#0a1418; --bg2:#0f1e24; --card:#132830; --line:#1e3a44;
@@ -370,23 +372,87 @@ $('playBtn').onclick=()=>{ vid.paused?vid.play():vid.pause(); $('playBtn').textC
 vid.onpause=()=>$('playBtn').textContent='재생';
 vid.onplay=()=>$('playBtn').textContent='일시정지';
 
+// timeout wrapper — 응답이 없으면 강제로 에러 발생
+function withTimeout(promise,ms,label){
+  return Promise.race([
+    promise,
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error(label+' (시간초과 '+(ms/1000)+'초)')),ms))
+  ]);
+}
+
 async function initPose(){
   if(landmarker)return;
-  setStatus('AI 모델 불러오는 중…',true,20);
-  const vision=await window.FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
-  setStatus('AI 모델 불러오는 중…',true,60);
-  landmarker=await window.PoseLandmarker.createFromOptions(vision,{
-    baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task"},
-    runningMode:"VIDEO",numPoses:1
-  });
-  setStatus('',false,100);
+
+  // 1) 라이브러리 자체가 로드됐는지 확인
+  if(window.__mpLoadFailed || !window.FilesetResolver || !window.PoseLandmarker){
+    throw new Error('LIB_NOT_LOADED');
+  }
+
+  // 2) WASM 파일 받기
+  setStatus('① 엔진 파일 받는 중…',true,15);
+  let vision;
+  try{
+    vision=await withTimeout(
+      window.FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"),
+      30000,'엔진 파일 다운로드 실패');
+  }catch(e){ throw new Error('WASM::'+e.message); }
+
+  // 3) 모델 파일 받기 (가장 오래 걸리는 단계)
+  setStatus('② AI 모델 받는 중… (처음 한 번, 수 MB)',true,55);
+  try{
+    landmarker=await withTimeout(
+      window.PoseLandmarker.createFromOptions(vision,{
+        baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task"},
+        runningMode:"VIDEO",numPoses:1
+      }),
+      45000,'모델 파일 다운로드 실패');
+  }catch(e){ throw new Error('MODEL::'+e.message); }
+
+  setStatus('준비 완료 · 분석을 시작합니다',false,100);
 }
 
 function setStatus(t,bar,pct){
   $('status').textContent=t;
+  $('status').style.color='var(--muted)';
   $('loadbar').style.display=bar?'block':'none';
   if(bar)$('loadfill').style.width=(pct||0)+'%';
+}
+
+function showError(rawMsg){
+  $('loadbar').style.display='none';
+  let title='분석을 시작할 수 없어요', detail='', tip='';
+
+  if(rawMsg.includes('LIB_NOT_LOADED')){
+    title='AI 라이브러리가 로드되지 않았어요';
+    detail='페이지 상단의 MediaPipe 스크립트가 안 받아졌습니다.';
+    tip='· 인터넷 연결 확인 후 <b>페이지를 완전히 새로고침</b>하세요.<br>· 광고/추적 차단 앱이 켜져 있으면 꺼보세요.';
+  } else if(rawMsg.includes('WASM')){
+    title='엔진 파일을 못 받았어요';
+    detail='cdn.jsdelivr.net 에서 엔진 파일을 받다가 막혔습니다.';
+    tip='· <b>와이파이</b>로 바꿔서 다시 시도해보세요.<br>· 회사·기관 와이파이면 이 주소가 차단됐을 수 있어요. 모바일 데이터로 시도해보세요.';
+  } else if(rawMsg.includes('MODEL')){
+    title='AI 모델 파일을 못 받았어요';
+    detail='storage.googleapis.com 에서 모델(수 MB)을 받다가 막혔습니다.';
+    tip='· <b>와이파이</b> 환경에서 다시 시도해보세요.<br>· 네트워크가 느리면 시간이 더 걸립니다. 재시도를 눌러보세요.<br>· 구글 서버가 차단된 망이면 다른 네트워크로 바꿔보세요.';
+  } else {
+    detail=rawMsg;
+    tip='· 재시도를 눌러보세요.<br>· 계속 안 되면 이 메시지를 저에게 알려주세요.';
+  }
+
+  $('status').innerHTML='';
+  $('status').style.color='var(--red)';
+  const box=document.createElement('div');
+  box.className='coach';
+  box.style.borderLeftColor='var(--red)';
+  box.style.marginTop='4px';
+  box.innerHTML=`<b style="color:var(--red)">${title}</b><br>`+
+    `<span style="color:var(--muted);font-size:12px">${detail}</span><br><br>${tip}`+
+    `<br><br><button id="retryBtn" style="background:var(--aqua);color:#04231d;border:none;`+
+    `padding:10px 18px;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer">다시 시도</button>`+
+    `<span style="color:var(--dim);font-size:11px;margin-left:10px">기술 정보: ${rawMsg}</span>`;
+  $('metrics').style.display='none';
+  $('status').appendChild(box);
+  document.getElementById('retryBtn').onclick=()=>{ $('status').innerHTML=''; $('analyzeBtn').click(); };
 }
 
 function angle(a,b,c){ // angle at b
@@ -398,26 +464,43 @@ function angle(a,b,c){ // angle at b
 
 $('analyzeBtn').onclick=async()=>{
   if(analyzing)return;
-  await initPose();
-  analyzing=true;
-  samples.knee=[];samples.lean=[];samples.bal=[];samples.arm=[];
-  $('analyzeBtn').disabled=true;$('analyzeBtn').textContent='분석 중…';
-  vid.pause();vid.currentTime=0;
-  await new Promise(r=>{vid.onseeked=r});
-  const dur=vid.duration, step=Math.max(dur/120,1/12); // ~120 frames max
-  let t=0;
-  while(t<dur){
-    vid.currentTime=t;
-    await new Promise(r=>{vid.onseeked=r});
-    const res=landmarker.detectForVideo(vid,performance.now());
-    if(res.landmarks&&res.landmarks[0]) processFrame(res.landmarks[0]);
-    setStatus(`분석 중… ${Math.round(t/dur*100)}%`,true,t/dur*100);
-    t+=step;
+  $('status').innerHTML='';
+
+  // 모델 준비 (실패하면 원인 표시)
+  try{
+    await initPose();
+  }catch(e){
+    $('analyzeBtn').disabled=false;$('analyzeBtn').textContent='자세 분석 시작';
+    showError(e.message||String(e));
+    return;
   }
-  analyzing=false;
-  $('analyzeBtn').disabled=false;$('analyzeBtn').textContent='다시 분석';
-  setStatus('',false,100);
-  showResults();
+
+  // 실제 프레임 분석
+  try{
+    analyzing=true;
+    samples.knee=[];samples.lean=[];samples.bal=[];samples.arm=[];
+    $('analyzeBtn').disabled=true;$('analyzeBtn').textContent='분석 중…';
+    vid.pause();vid.currentTime=0;
+    await new Promise(r=>{vid.onseeked=r});
+    const dur=vid.duration, step=Math.max(dur/120,1/12); // ~120 frames max
+    let t=0;
+    while(t<dur){
+      vid.currentTime=t;
+      await new Promise(r=>{vid.onseeked=r});
+      const res=landmarker.detectForVideo(vid,performance.now());
+      if(res.landmarks&&res.landmarks[0]) processFrame(res.landmarks[0]);
+      setStatus(`분석 중… ${Math.round(t/dur*100)}%`,true,t/dur*100);
+      t+=step;
+    }
+    analyzing=false;
+    $('analyzeBtn').disabled=false;$('analyzeBtn').textContent='다시 분석';
+    setStatus('',false,100);
+    showResults();
+  }catch(e){
+    analyzing=false;
+    $('analyzeBtn').disabled=false;$('analyzeBtn').textContent='다시 분석';
+    showError('ANALYZE::영상 분석 중 오류 — '+(e.message||String(e)));
+  }
 };
 
 const L={ // MediaPipe pose landmark indices
