@@ -4,31 +4,27 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>웨이크 트래커 · 수상스키 기록 & 자세분석</title>
-<script>
-  // MediaPipe 라이브러리 로더 — 여러 CDN을 순서대로 시도
-  window.__mpReady=null; // Promise
+<script type="module">
+  // MediaPipe 라이브러리 로더 — U+망에서 열리는 esm.sh 사용
   window.__mpError=null;
-  (function(){
+  window.__mpReady=(async()=>{
     const SOURCES=[
-      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.js",
-      "https://unpkg.com/@mediapipe/tasks-vision@0.10.14/vision_bundle.js",
-      "https://fastly.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.js"
+      "https://esm.sh/@mediapipe/tasks-vision@0.10.14",
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"
     ];
-    function tryLoad(i){
-      return new Promise((resolve,reject)=>{
-        if(i>=SOURCES.length){ reject(new Error('ALL_CDN_FAILED')); return; }
-        const s=document.createElement('script');
-        s.src=SOURCES[i];
-        s.onload=()=>{
-          // 실제로 객체가 붙었는지 확인
-          if(window.FilesetResolver&&window.PoseLandmarker) resolve(SOURCES[i]);
-          else tryLoad(i+1).then(resolve).catch(reject);
-        };
-        s.onerror=()=>{ s.remove(); tryLoad(i+1).then(resolve).catch(reject); };
-        document.head.appendChild(s);
-      });
+    let lastErr='';
+    for(const src of SOURCES){
+      try{
+        const mod=await import(src);
+        if(mod.FilesetResolver && mod.PoseLandmarker){
+          window.FilesetResolver=mod.FilesetResolver;
+          window.PoseLandmarker=mod.PoseLandmarker;
+          return src;
+        }
+      }catch(e){ lastErr=e.message||String(e); }
     }
-    window.__mpReady=tryLoad(0).catch(e=>{ window.__mpError=e.message; throw e; });
+    window.__mpError=lastErr;
+    throw new Error('ALL_CDN_FAILED::'+lastErr);
   })();
 </script>
 <style>
@@ -407,8 +403,12 @@ function withTimeout(promise,ms,label){
 async function initPose(){
   if(landmarker)return;
 
-  // 1) 라이브러리 로드 대기 (여러 CDN 자동 시도)
+  // 1) 라이브러리 로드 대기 (esm.sh 자동)
   setStatus('① AI 엔진 준비 중… (서버 연결)',true,10);
+  // 모듈 스크립트가 아직 초기화 안 됐으면 잠깐 대기
+  let waited=0;
+  while(!window.__mpReady && waited<5000){ await new Promise(r=>setTimeout(r,100)); waited+=100; }
+  if(!window.__mpReady){ throw new Error('LIB_NOT_LOADED::로더 초기화 실패'); }
   try{
     await withTimeout(window.__mpReady, 40000, 'AI 라이브러리 로드 실패');
   }catch(e){
@@ -421,9 +421,8 @@ async function initPose(){
   // 2) WASM 파일 받기 (여러 CDN 시도)
   setStatus('② 엔진 파일 받는 중…',true,30);
   const WASM_DIRS=[
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm",
-    "https://unpkg.com/@mediapipe/tasks-vision@0.10.14/wasm",
-    "https://fastly.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+    "https://esm.sh/@mediapipe/tasks-vision@0.10.14/wasm",
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
   ];
   let vision=null, lastErr='';
   for(const dir of WASM_DIRS){
@@ -469,8 +468,8 @@ function showError(rawMsg){
 
   if(rawMsg.includes('LIB_NOT_LOADED')){
     title='AI 라이브러리를 받지 못했어요';
-    detail='여러 서버(jsdelivr·unpkg·fastly)를 모두 시도했지만 전부 막혔습니다.';
-    tip='· <b>와이파이</b>로 바꿔서 다시 시도해보세요.<br>· 폰에 깔린 <b>광고·추적 차단 앱</b>(AdGuard, 1.1.1.1 등)을 잠깐 끄세요. 이 서버들을 통째로 막는 경우가 많아요.<br>· 회사·기관 와이파이면 모바일 데이터로 시도해보세요.';
+    detail='esm.sh 서버에서 AI 라이브러리를 받다가 막혔습니다.';
+    tip='· <b>와이파이</b>로 바꿔서 다시 시도해보세요.<br>· 잠시 후 다시 시도를 눌러보세요. 서버가 일시적으로 느릴 수 있어요.';
   } else if(rawMsg.includes('WASM')){
     title='엔진 파일을 못 받았어요';
     detail='cdn.jsdelivr.net 에서 엔진 파일을 받다가 막혔습니다.';
